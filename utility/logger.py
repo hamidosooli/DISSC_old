@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 
 import matplotlib.pyplot as plt
+import wandb
 
 def record(item, writer, step):
     summary = tf.Summary()
@@ -15,7 +16,11 @@ def record(item, writer, step):
     writer.flush()
 
 def tb_log_histogram(data, tag, step, **kargs):
-    tf.summary.histogram(name=tag, data=data, step=step, **kargs)
+    # Log histogram via Weights & Biases
+    try:
+        wandb.log({tag: wandb.Histogram(np.asarray(data))}, step=int(step))
+    except Exception:
+        pass
 
 def tb_log_ctf_frame(frame, tag, step):
     num_images = frame.shape[2]
@@ -32,11 +37,9 @@ def tb_log_ctf_frame(frame, tag, step):
         ax.set_yticks([])
         fig.colorbar(im, ax=ax)
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
+    # Log image via Weights & Biases
+    try:
+        wandb.log({tag: wandb.Image(fig)}, step=int(step))
+    except Exception:
+        pass
     plt.close(fig)
-    buf.seek(0)
-    image = tf.image.decode_png(buf.getvalue(), channels=4)
-    image = tf.expand_dims(image, 0)
-
-    tf.summary.image(tag, image, step=step)

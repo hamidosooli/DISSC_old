@@ -16,6 +16,8 @@ import multiprocessing
 import yaml
 
 import tensorflow as tf
+# W&B logging
+import wandb
 #tf.config.experimental_run_functions_eagerly(True)
 physical_devices = tf.config.experimental.list_physical_devices("GPU")
 for device in physical_devices:
@@ -30,7 +32,7 @@ from collections import defaultdict
 from functools import partial
 
 from smac.env import StarCraft2Env
-from SC2Wrappers import SMACWrapper
+from SC2Wrappers import SMACWrapper, SMACV2Wrapper, VMASWrapper, SMACliteWrapper
 
 from utility.utils import MovingAverage
 from utility.utils import interval_flag, path_create
@@ -52,6 +54,7 @@ parser.add_argument("--step_mul", type=int, default=8, help='how many steps to m
 parser.add_argument("--training_steps", type=int, default=100000000, help='number of training episodes')
 parser.add_argument("--config", type=str, default=None, help='configuration file location')
 parser.add_argument("--entropy_beta", type=float, default=None, help='entropy beta')
+parser.add_argument("--env_version", type=str, default='smac', choices=['smac','smacv2','vmas','smaclite'], help='environment API version')
 args = parser.parse_args()
 
 ## Training Directory Reset
@@ -108,6 +111,63 @@ path_create(SAVE_PATH)
 with open(os.path.join(MODEL_PATH, 'config.yaml'), 'w') as file:
     yaml.dump(param, file)
 
+# Initialize Weights & Biases
+wandb.init(
+    project="DISSCv2",
+    entity="hamid-osooli",
+    name=TRAIN_NAME,
+    config=param,
+)
+
+# Apply W&B sweep/config overrides into param and selected args
+def _apply_wandb_overrides(_param, _args):
+    cfg = dict(wandb.config)
+    if not cfg:
+        return _param, _args
+    # direct param key overrides
+    _param.update({k: v for k, v in cfg.items() if k in _param})
+    # mapping from sweep snake_case to existing param keys
+    key_map = {
+        'decentral_lr': 'decentral learning rate',
+        'central_lr': 'central learning rate',
+        'entropy_beta': 'entropy beta',
+        'psi_beta': 'psi beta',
+        'reward_beta': 'reward beta',
+        'decoder_beta': 'decoder beta',
+        'critic_beta': 'critic beta',
+        'q_beta': 'q beta',
+        'learnability_beta': 'learnability beta',
+        'target_kl': 'target_kl',
+        'eps': 'eps',
+        'buffer_size': 'buffer size',
+        'minibatch_size': 'minibatch size',
+        'epoch': 'epoch',
+        'save_model_frequency': 'save model frequency',
+        'save_statistic_frequency': 'save statistic frequency',
+        'save_image_frequency': 'save image frequency',
+        'moving_average_step': 'moving average step',
+        'test_interval': 'test interval',
+        'test_episode': 'test episode',
+        'frame_stack': 'frame stack',
+        'gamma': 'gamma',
+        'lambda_': 'lambda',
+    }
+    for k_src, k_dst in key_map.items():
+        if k_src in cfg:
+            _param[k_dst] = cfg[k_src]
+    # arg-level overrides
+    if 'training_steps' in cfg:
+        _args.training_steps = int(cfg['training_steps'])
+    if 'step_mul' in cfg:
+        _args.step_mul = int(cfg['step_mul'])
+    if 'difficulty' in cfg:
+        _args.difficulty = str(cfg['difficulty'])
+    if 'map' in cfg:
+        _args.map = str(cfg['map'])
+    return _param, _args
+
+param, args = _apply_wandb_overrides(param, args)
+
 # Training hyperparameters 
 total_steps = args.training_steps
 gamma = param['gamma']  # GAE - discount
@@ -129,13 +189,50 @@ log_traintime = MovingAverage(moving_average_step)
 
 # Environment configuration
 frame_stack = param['frame stack']
-env = StarCraft2Env(
-    map_name=args.map,
-    step_mul=args.step_mul,
-    difficulty=args.difficulty,
-    replay_dir=SAVE_PATH
-)
-env = SMACWrapper(env, numFramesObs=frame_stack, lstm=True)
+if args.env_version == 'smacv2':
+    # Try multiple likely import paths for SMACv2
+    _env = None
+    try:
+        from smacv2.env import StarCraft2Env as StarCraft2EnvV2  # type: ignore
+        _env = StarCraft2EnvV2(map_name=args.map, step_mul=args.step_mul, difficulty=args.difficulty, replay_dir=SAVE_PATH)
+    except Exception:
+        try:
+            from smacv2.env import StarCraft2EnvV2  # type: ignore
+            _env = StarCraft2EnvV2(map_name=args.map, step_mul=args.step_mul, difficulty=args.difficulty, replay_dir=SAVE_PATH)
+        except Exception as e:
+            raise ImportError("SMACv2 environment not found. Please install smacv2 and ensure imports are correct.") from e
+    env = SMACV2Wrapper(_env, numFramesObs=frame_stack, lstm=True)
+elif args.env_version == 'vmas':
+    try:
+        import vmas  # noqa
+        from vmas import make_env as vmas_make_env  # type: ignore
+    except Exception as e:
+        raise ImportError("VMAS is not installed. Please install with `pip install 'vmas[gymnasium]'`. ") from e
+    _env = vmas_make_env(
+        args.map,  # use --map to pass VMAS scenario name
+        num_envs=1,
+        continuous_actions=False,
+        dict_spaces=False,
+        terminated_truncated=True,
+        wrapper="gymnasium",
+    )
+    env = VMASWrapper(_env, numFramesObs=frame_stack, lstm=True)
+elif args.env_version == 'smaclite':
+    try:
+        import gymnasium as gym  # type: ignore
+        import smaclite  # noqa: F401
+    except Exception as e:
+        raise ImportError("SMAClite is not installed. Please install smaclite from its repository.") from e
+    _env = gym.make(f"smaclite/{args.map}-v0")
+    env = SMACliteWrapper(_env, numFramesObs=frame_stack, lstm=True)
+else:
+    env = StarCraft2Env(
+        map_name=args.map,
+        step_mul=args.step_mul,
+        difficulty=args.difficulty,
+        replay_dir=SAVE_PATH
+    )
+    env = SMACWrapper(env, numFramesObs=frame_stack, lstm=True)
 env_info = env.env_info
 print(env_info)
         
@@ -534,6 +631,10 @@ while global_steps < total_steps:
 
     if PRINT:
         print("Reward in episode batch {} = {} {}".format(global_steps, np.mean(_rollout_rewards), TRAIN_NAME))
+    # Log return mean over the rollout batch
+    wandb.log({
+        "return_mean": float(np.mean(_rollout_rewards))
+    }, step=int(global_steps))
 
     # decentralize training
     if PRINT:
@@ -577,23 +678,24 @@ while global_steps < total_steps:
         test_rewards, test_winrates = rollout(test_nepisode, argmax_policy=True)
         if PRINT:
             print('Reward in test batch = {}, winrate: {}'.format(test_rewards.mean(), test_winrates.mean()))
-        with writer.as_default():
-            tag = "test/"
-            tf.summary.scalar(tag + "reward_mean", test_rewards.mean(), step=global_steps)
-            tf.summary.scalar(tag + "reward_std", test_rewards.std(), step=global_steps)
-            tf.summary.scalar(tag + "winrate_mean", test_winrates.mean(), step=global_steps)
-            writer.flush()
+        tag = "test/"
+        wandb.log({
+            tag + "reward_mean": float(test_rewards.mean()),
+            tag + "reward_std": float(test_rewards.std()),
+            tag + "winrate_mean": float(test_winrates.mean()),
+            "test_return_mean": float(test_rewards.mean()),
+        }, step=int(global_steps))
 
     # Log
     log_on = interval_flag(global_steps, save_stat_frequency, "log")
     if log_on:
-        with writer.as_default():
-            tag = "baseline_training/"
-            tf.summary.scalar(tag + "env_reward", log_episodic_reward(), step=global_steps)
-            tf.summary.scalar(tag + "winrate", log_winrate(), step=global_steps)
-            tf.summary.scalar(tag + "rollout_time", log_looptime(), step=global_steps)
-            tf.summary.scalar(tag + "train_time", log_traintime(), step=global_steps)
-            writer.flush()
+        tag = "baseline_training/"
+        wandb.log({
+            tag + "env_reward": float(log_episodic_reward()),
+            tag + "winrate": float(log_winrate()),
+            tag + "rollout_time": float(log_looptime()),
+            tag + "train_time": float(log_traintime()),
+        }, step=int(global_steps))
 
     # Network Save
     save_on = interval_flag(global_steps, save_network_frequency, "save")

@@ -1,0 +1,55 @@
+program: run_cvdc.py
+project: DISSCv2
+entity: hamid-osooli
+method: bayes
+metric:
+  name: return_mean
+  goal: maximize
+parameters:
+  training_steps:
+    value: 2000000
+  map:
+    value: 2s3z
+  step_mul:
+    values: [4, 8]
+  decentral_lr:
+    values: [1e-4, 3e-4, 1e-3]
+  central_lr:
+    values: [1e-4, 3e-4, 1e-3]
+  entropy_beta:
+    values: [0.0, 1e-3, 5e-3]
+  psi_beta:
+    values: [0.5, 1.0]
+  q_beta:
+    values: [0.0, 0.1]
+  critic_beta:
+    values: [0.5, 1.0]
+  reward_beta:
+    values: [0.1, 0.5]
+  decoder_beta:
+    values: [0.0, 0.1]
+  minibatch_size:
+    values: [64, 128]
+  epoch:
+    values: [2, 4]
+  gamma:
+    values: [0.97, 0.99]
+  lambda_:
+    values: [0.9, 0.95]
+  save_model_frequency:
+    value: 4096
+  save_statistic_frequency:
+    value: 2048
+  save_image_frequency:
+    value: 2048
+  moving_average_step:
+    value: 50
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --machine
+  - sweep
+  - --silence
+  - --train_number
+  - 1

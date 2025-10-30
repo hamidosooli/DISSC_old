@@ -1,0 +1,18 @@
+# Extra environment dependencies (env backends)
+# Install with: pip install -r env_requirements.txt
+
+# VMAS (Gymnasium-based multi-agent physics)
+vmas[gymnasium]
+
+# SMAClite (lightweight SMAC reimplementation)
+git+https://github.com/uoe-agents/smaclite.git
+
+# SMAC/SMACv2 (StarCraft II)
+pysc2==3.0.0
+s2clientprotocol==4.10.1.75800.0
+# Upstream repos (aligned with DISSCv2)
+git+https://github.com/oxwhirl/smac.git
+git+https://github.com/oxwhirl/smacv2.git
+
+# Experiment tracking
+wandb>=0.17.0

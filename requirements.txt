@@ -1,0 +1,21 @@
+# Core Python dependencies for DISSC_old
+# Install with: pip install -r requirements.txt
+
+# ML stack
+tensorflow==2.4.0
+numpy==1.19.5
+matplotlib==3.3.3
+
+# RL env support
+gym==0.18.0
+pysc2==3.0.0
+s2clientprotocol==4.10.1.75800.0
+
+# Utilities
+pyyaml==5.3.1
+protobuf==3.14.0
+
+# Logging
+wandb>=0.17.0
+
+# Note: For SMAC/SMACv2/VMAS/SMAClite backends, also install env_requirements.txt

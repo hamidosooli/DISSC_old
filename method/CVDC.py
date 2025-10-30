@@ -6,6 +6,7 @@ import numpy as np
 
 from utility.utils import store_args
 from utility.logger import *
+import wandb
 
 from network.CVDC_model import Central, Decentral
 from network.CVDC_model import train
@@ -131,11 +132,9 @@ class SF_CVDC:
                 for var in self.dec_models[i].weights:
                     tb_log_histogram(var.numpy(), 'decentral{}_weight/'.format(i)+var.name, step)
 
-        # Log Information
-        # - information must be given in dictionary form
+        # Log Information (scalars) via W&B
         if logs is not None:
-            for name, val in logs.items():
-                tf.summary.scalar(name, val, step=step)
+            wandb.log({k: float(v) for k, v in logs.items()}, step=int(step))
 
     def run_network_central(self, inputs, states):
         env_critic, env_feature = self.model_central(inputs, states)
@@ -178,19 +177,14 @@ class SF_CVDC:
             critic_losses.append(info["critic_mse"])
         print(np.mean(critic_losses))
         if log:
-            assert writer is not None
             assert step is not None
             assert tag is not None
             logs = {tag+'central_critic_loss': np.mean(critic_losses)}
-            with writer.as_default():
-                for name, val in logs.items():
-                    tf.summary.scalar(name, val, step=step)
-                writer.flush()
+            wandb.log({k: float(v) for k, v in logs.items()}, step=int(step))
     
     # Decentralize updater
     def update_decentral(self, datasets, writer=None, log=False, step=None, tag=None, param=None):
         if log:
-            assert writer is not None
             assert step is not None
             assert tag is not None
         actor_losses = []
@@ -241,9 +235,7 @@ class SF_CVDC:
                     'approx_kl': np.mean(approx_kls),
                     'approx_ent': np.mean(approx_ents),
                     }
-            with writer.as_default():
-                self.log(step, logs=logs)
-                writer.flush()
+            self.log(step, logs=logs)
 
     def update_target(self):
         self.model_central_target.set_weights(self.model_central.get_weights())
