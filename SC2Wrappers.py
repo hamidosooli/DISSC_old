@@ -51,7 +51,7 @@ class SMACWrapper:
         action_id_oh[np.arange(self.num_agent), np.asarray(action)] = 1
         agent_id_oh = np.eye(self.num_agent, dtype=np.float32)
         obs = np.concatenate([obs, action_id_oh, agent_id_oh], axis=1)
-        obss = self.stackedStates_obs(obs)
+        obss = self.stackedStates_obs.initiate(obs)
 
         # Update Information
         if "battle_won" not in info:
@@ -145,7 +145,7 @@ class SMACV2Wrapper:
         action_id_oh[np.arange(self.num_agent), np.asarray(action)] = 1
         agent_id_oh = np.eye(self.num_agent, dtype=np.float32)
         obs = np.concatenate([obs, action_id_oh, agent_id_oh], axis=1)
-        obss = self.stackedStates_obs(obs)
+        obss = self.stackedStates_obs.initiate(obs)
 
         if "battle_won" not in info:
             info["battle_won"] = False
