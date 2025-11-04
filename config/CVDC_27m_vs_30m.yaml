@@ -3,7 +3,7 @@ moving average step: 2000
 save statistic frequency: 2000
 save image frequency: 2000
 save model frequency: 40960
-rollout episodes: 8
+rollout episodes: 100
 
 # Model Configuration
 frame stack: 4
@@ -47,3 +47,5 @@ central critic encoder: 'hyper2'
 decentral critic encoder: 'hyper1'
 decentral pi encoder: 'recurse'
 update target interval: 100
+
+training_steps: 4050000

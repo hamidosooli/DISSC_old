@@ -54,8 +54,8 @@ class SMACWrapper:
         obss = self.stackedStates_obs.initiate(obs)
 
         # Update Information
-        if "battle_won" not in info:
-            info["battle_won"]=False
+        # if "battle_won" not in info:
+        #     info["battle_won"]=False
         info['valid_action'] = validActions
         info['terminated'] = terminated
 
@@ -168,47 +168,41 @@ class SMACV2Wrapper:
         self.env.save_replay()
 
 
+import numpy as np
+import zmq, pickle
+
 class VMASWrapper:
-    def __init__(self, env, numFramesObs=3, lstm=False, **kwargs):
-        self.env = env
+    def __init__(self, env=None, numFramesObs=3, lstm=False, **kwargs):
         self.lstm = lstm
-
-        # Infer basic info
-        try:
-            self.n_agents = self.env.unwrapped.n_agents
-        except Exception:
-            # Fallback: infer from reset
-            obss, _ = self.env.reset()
-            self.n_agents = len(obss) if isinstance(obss, (list, tuple)) else 1
-
-        # We discretize to 5 cardinal actions as common in VMAS setups
         self.num_action = 5
 
-        # One-step probe to get obs dim
-        try:
-            obss, _ = self.env.reset()
-        except Exception:
-            obss = [np.zeros((1,), dtype=np.float32) for _ in range(self.n_agents)]
-        if isinstance(obss, (list, tuple)):
-            obs_dim = int(np.asarray(obss[0], dtype=np.float32).size)
-        else:
-            obs_dim = int(np.asarray(obss, dtype=np.float32).size)
+        # Connect to external VMAS server
+        ctx = zmq.Context()
+        self.sock = ctx.socket(zmq.REQ)
+        self.sock.connect("tcp://127.0.0.1:5557")
 
-        # Compose env_info to match expected keys
+        # Get initial obs to infer shape and n_agents
+        self.sock.send(pickle.dumps({"cmd": "reset"}))
+        data = pickle.loads(self.sock.recv())
+        obss = data["obs"]
+        self.n_agents = len(obss)
+        obs_dim = int(np.asarray(obss[0], dtype=np.float32).size)
+
         self.env_info = {
             'n_agents': self.n_agents,
             'n_actions': self.num_action,
             'obs_shape': obs_dim + self.num_action + self.n_agents,
             'state_shape': obs_dim * self.n_agents,
-            'episode_limit': getattr(self.env.unwrapped, 'max_steps', 200),
+            'episode_limit': 200
         }
 
         self.stackedStates_obs = Stacked_state(numFramesObs, 1, lstm)
 
     def reset(self):
-        obss, _ = self.env.reset()
-        if not isinstance(obss, (list, tuple)):
-            obss = [obss] * self.n_agents
+        self.sock.send(pickle.dumps({"cmd": "reset"}))
+        data = pickle.loads(self.sock.recv())
+        obss = data["obs"]
+
         obs_mat = np.vstack([np.asarray(o, dtype=np.float32).ravel() for o in obss])
         state = obs_mat.reshape(-1).astype(np.float32)
 
@@ -217,28 +211,15 @@ class VMASWrapper:
         obs = np.concatenate([obs_mat, action_id_oh, agent_id_oh], axis=1)
         return self.stackedStates_obs.initiate(obs), state
 
-    def step(self, action, *args, **kwargs):
-        obss, rews, term, trunc, info = self.env.step(action)
-        terminated = bool(term or trunc)
+    def step(self, action):
+        self.sock.send(pickle.dumps({"cmd": "step", "actions": action}))
+        data = pickle.loads(self.sock.recv())
+        obss, rews, done, info = data["obs"], data["rews"], data["done"], data["info"]
 
-        # Scalarize/aggregate reward to a team reward
-        if isinstance(rews, (list, tuple, np.ndarray)):
-            reward = float(np.asarray(rews, dtype=np.float32).sum())
-        else:
-            reward = float(rews)
-
-        # Build availability mask: all actions available
+        reward = float(np.sum(rews))
         validActions = np.ones((self.n_agents, self.num_action), dtype=np.float32)
+        done_flags = np.array([done] * self.n_agents)
 
-        # Per-agent done flags
-        if terminated:
-            done = np.asarray([True] * self.n_agents)
-        else:
-            done = np.asarray([False] * self.n_agents)
-
-        # Next obs/state
-        if not isinstance(obss, (list, tuple)):
-            obss = [obss] * self.n_agents
         obs_mat = np.vstack([np.asarray(o, dtype=np.float32).ravel() for o in obss])
         state = obs_mat.reshape(-1).astype(np.float32)
 
@@ -250,12 +231,11 @@ class VMASWrapper:
 
         if not isinstance(info, dict):
             info = {}
-        if 'battle_won' not in info:
-            info['battle_won'] = False
+        info.setdefault('battle_won', False)
         info['valid_action'] = validActions
-        info['terminated'] = terminated
+        info['terminated'] = done
 
-        return (obss_stacked, state), reward, done, info
+        return (obss_stacked, state), reward, done_flags, info
 
     def get_avail_actions(self):
         return np.ones((self.n_agents, self.num_action), dtype=np.float32)
