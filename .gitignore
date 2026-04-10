@@ -5,3 +5,6 @@
  logs/
  model/
  save/
+ method/__pycache__
+ network/__pycache__
+ utility/__pycache__
