@@ -1,10 +1,10 @@
- __pycache__/
- **/__pycache__/
- *.py[cod]
- wandb/
- logs/
- model/
- save/
- method/__pycache__
- network/__pycache__
- utility/__pycache__
+__pycache__/
+**/__pycache__/
+*.py[cod]
+wandb/
+logs/
+model/
+save/
+method/__pycache__
+network/__pycache__
+utility/__pycache__
