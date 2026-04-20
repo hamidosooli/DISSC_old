@@ -32,7 +32,7 @@ from collections import defaultdict
 from functools import partial
 
 from smac.env import StarCraft2Env
-from SC2Wrappers import SMACWrapper, SMACV2Wrapper, VMASWrapper, SMACliteWrapper
+from SC2Wrappers import SMACWrapper, SMACV2Wrapper, VMASWrapper, SMACliteWrapper, LBFWrapper
 
 from utility.utils import MovingAverage
 from utility.utils import interval_flag, path_create
@@ -54,7 +54,8 @@ parser.add_argument("--step_mul", type=int, default=8, help='how many steps to m
 parser.add_argument("--training_steps", type=int, default=100000000, help='number of training episodes')
 parser.add_argument("--config", type=str, default=None, help='configuration file location')
 parser.add_argument("--entropy_beta", type=float, default=None, help='entropy beta')
-parser.add_argument("--env_version", type=str, default='smac', choices=['smac','smacv2','vmas','smaclite'], help='environment API version')
+parser.add_argument("--lbf_env_key", type=str, default=None, help='LBF Gymnasium env key (e.g., lbforaging:Foraging-15x15-3p-5f-v3)')
+parser.add_argument("--env_version", type=str, default='smac', choices=['smac','smacv2','vmas','smaclite','lbf'], help='environment API version')
 args = parser.parse_args()
 
 ## Training Directory Reset
@@ -225,6 +226,23 @@ elif args.env_version == 'smaclite':
         raise ImportError("SMAClite is not installed. Please install smaclite from its repository.") from e
     _env = gym.make(f"smaclite/{args.map}-v0")
     env = SMACliteWrapper(_env, numFramesObs=frame_stack, lstm=True)
+elif args.env_version == 'lbf':
+    try:
+        import gymnasium as gym  # type: ignore
+        import lbforaging  # noqa: F401
+    except Exception as e:
+        raise ImportError("LBF is not installed. Please install with `pip install lbforaging gymnasium==0.26.3`.") from e
+    from lbforaging_custom import register_custom_lbforaging_envs
+
+    register_custom_lbforaging_envs()
+    env_key = args.lbf_env_key if args.lbf_env_key is not None else args.map
+    if env_key is None:
+        raise ValueError("LBF env key is required. Set --lbf_env_key or use --map with an LBF env id.")
+    # Accept both namespaced and plain forms
+    if env_key.startswith("lbforaging:"):
+        env_key = env_key.split(":", 1)[1]
+    _env = gym.make(env_key)
+    env = LBFWrapper(_env, numFramesObs=frame_stack, lstm=True)
 else:
     env = StarCraft2Env(
         map_name=args.map,
@@ -706,4 +724,3 @@ while global_steps < total_steps:
     log_save_analysis = interval_flag(global_steps, 1024 * 4, "save_log")
     if log_save_analysis:
         pass
-
