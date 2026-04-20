@@ -3,8 +3,8 @@ moving average step: 2000
 save model frequency: 40960
 save statistic frequency: 2000
 save image frequency: 2000
-test interval: 2000
-test episode: 20
+test interval: 50000
+test episode: 100
 rollout episodes: 8
 
 # Model Configuration
